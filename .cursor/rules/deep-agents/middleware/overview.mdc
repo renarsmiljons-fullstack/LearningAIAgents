@@ -1,0 +1,140 @@
+---
+description: "REFERENCE: Deep Agents middleware system — deep-agents/src/middleware/"
+alwaysApply: false
+---
+
+# Deep Agents Middleware System
+
+Middleware provides fine-grained interception of the agent execution loop in `createDeepAgent`. It handles cross-cutting concerns — logging, guardrails, retries, tool filtering, state tracking, context injection — without modifying core agent logic.
+
+## Built-in middleware
+
+`createDeepAgent` automatically includes these middleware (in order):
+
+1. **TodoListMiddleware** — adds the `write_todos` tool for planning
+2. **FilesystemMiddleware** — adds `ls`, `read_file`, `write_file`, `edit_file`, `glob`, `grep` (and `execute` with sandbox backends)
+3. **SubAgentMiddleware** — adds the `task` tool for spawning subagents
+4. **SummarizationMiddleware** — compresses message history when context grows too large
+5. **AnthropicPromptCachingMiddleware** — reduces redundant token processing for Anthropic models
+6. **PatchToolCallsMiddleware** — fixes dangling tool calls when execution is interrupted
+
+Your custom middleware is appended after these, so it can observe and intercept everything the built-in middleware produces.
+
+## Lifecycle hooks
+
+There are 6 hooks split into two categories:
+
+### Node-style hooks (run at fixed points, return state updates)
+
+| Hook | When it fires | Purpose |
+|---|---|---|
+| `beforeAgent` | Once, before the agent loop starts | Initialization, state patching, early exit |
+| `beforeModel` | Before **each** LLM call | Validation, guardrails, short-circuit via `jumpTo` |
+| `afterModel` | After **each** LLM response | Logging, counters, post-processing |
+| `afterAgent` | Once, after the agent loop ends | Cleanup, final state writes |
+
+Node-style hooks return a dict to merge into state, or `undefined` to pass through. `beforeModel` can also return `{ jumpTo: "end" | "model" | "tools" }` to short-circuit (requires declaring `canJumpTo`).
+
+### Wrap-style hooks (nested, you control execution flow)
+
+| Hook | When it fires | Purpose |
+|---|---|---|
+| `wrapModelCall` | Wraps **each** LLM invocation | Retry, caching, model swapping, tool filtering, prompt injection |
+| `wrapToolCall` | Wraps **each** tool invocation | Monitoring, error handling, result transformation, context injection |
+
+Wrap-style hooks receive `(request, handler)`. You decide whether to call `handler` zero times (short-circuit), once (normal), or multiple times (retry).
+
+## createMiddleware API
+
+```typescript
+import { createMiddleware } from "langchain";
+
+const myMiddleware = createMiddleware({
+  name: "MyMiddleware",
+
+  // Optional: extend agent state with custom fields
+  stateSchema: z.object({
+    myCounter: z.number().default(0),
+  }),
+
+  // Optional: per-invocation read-only context (e.g., user ID, tenant)
+  contextSchema: z.object({
+    userId: z.string(),
+  }),
+
+  // Node-style hooks
+  beforeAgent: (state) => { /* return state update or undefined */ },
+  beforeModel: (state) => { /* return state update, jumpTo, or undefined */ },
+  afterModel: (state) => { /* return state update or undefined */ },
+  afterAgent: (state) => { /* return state update or undefined */ },
+
+  // Wrap-style hooks
+  wrapModelCall: async (request, handler) => {
+    // request.messages, request.tools, request.runtime.context
+    return handler(request);
+  },
+  wrapToolCall: async (request, handler) => {
+    // request.toolCall.name, request.toolCall.args
+    return handler(request);
+  },
+});
+```
+
+## Execution order
+
+For `middleware: [m1, m2, m3]`:
+
+- **before hooks**: m3 -> m2 -> m1 (last-to-first)
+- **wrap hooks**: m1 wraps m2 wraps m3 wraps actual call (first = outermost)
+- **after hooks**: m1 -> m2 -> m3 (first-to-last, reverse of before)
+
+## State management
+
+- **`stateSchema`**: Extend agent state with custom fields (Zod object). Fields persist across the entire execution lifecycle.
+- **Private fields**: Prefix with `_` (e.g., `_internalFlag`) — accessible during execution but excluded from `.invoke()` result.
+- **`contextSchema`**: Read-only per-invocation metadata. Accessed via `request.runtime.context` in wrap hooks. Enforced at the TypeScript level.
+- **Cross-middleware**: State set in `beforeModel` is visible in `afterModel` and across all middleware instances.
+
+## Example: tool-call interception by name pattern
+
+```typescript
+import { createMiddleware } from "langchain";
+
+const toolHooks = createMiddleware({
+  name: "ToolHooks",
+  wrapToolCall: async (request, handler) => {
+    if (request.toolCall.name.match(/^(read_file|grep)$/)) {
+      console.log(`[hook] intercepted ${request.toolCall.name}`);
+      // Run custom async code — agent waits for this to complete
+      const extraContext = await fetchSomething();
+      // Modify args before passing to the actual tool
+      const modified = {
+        ...request,
+        toolCall: {
+          ...request.toolCall,
+          args: { ...request.toolCall.args, extra: extraContext },
+        },
+      };
+      return handler(modified);
+    }
+    return handler(request);
+  },
+});
+
+const agent = createDeepAgent({
+  middleware: [toolHooks],
+});
+```
+
+## Usage with createDeepAgent
+
+```typescript
+import { createDeepAgent } from "deepagents";
+
+const agent = createDeepAgent({
+  model: "openai:gpt-5.2",
+  middleware: [myMiddleware1, myMiddleware2],
+});
+```
+
+Your middleware array is appended after the built-in stack. You do not need to re-add built-in middleware — it's always included automatically.

@@ -1,0 +1,92 @@
+---
+description: "REFERENCE: PostgresSaver checkpointer (persistent, Postgres-backed) — deep-agents/src/checkpointers/"
+alwaysApply: false
+---
+
+# PostgresSaver Checkpointer
+
+`PostgresSaver` is a drop-in replacement for `MemorySaver` that persists agent state to a PostgreSQL database. Checkpoints survive process restarts, enabling true cross-session conversation persistence.
+
+## Package and install
+
+```bash
+npm install @langchain/langgraph-checkpoint-postgres pg
+```
+
+Peer dependencies `@langchain/core` and `@langchain/langgraph-checkpoint` are already in the tree via `@langchain/langgraph`.
+
+## Initialization
+
+### From connection string
+
+```typescript
+import { PostgresSaver } from "@langchain/langgraph-checkpoint-postgres";
+
+const checkpointer = PostgresSaver.fromConnString(
+  process.env.POSTGRES_URL ?? "postgresql://user:password@localhost:5432/langgraph",
+);
+await checkpointer.setup(); // auto-creates tables, idempotent
+```
+
+### From an existing pg.Pool
+
+```typescript
+import { PostgresSaver } from "@langchain/langgraph-checkpoint-postgres";
+import pg from "pg";
+
+const pool = new pg.Pool({ connectionString: process.env.POSTGRES_URL });
+const checkpointer = new PostgresSaver(pool, undefined, { schema: "public" });
+await checkpointer.setup();
+```
+
+## Connection string format
+
+```
+postgresql://user:password@host:port/database
+```
+
+Example: `postgresql://postgres:postgres@localhost:5432/langgraph`
+
+## Table creation
+
+`setup()` auto-creates all required tables and runs migrations. It is idempotent — safe to call on every startup. No manual DDL needed.
+
+To use a custom Postgres schema (defaults to `public`):
+
+```typescript
+PostgresSaver.fromConnString("postgresql://...", { schema: "my_schema" });
+```
+
+## Swapping from MemorySaver
+
+The only change is the checkpointer construction — everything else (`createDeepAgent`, `thread_id` config, `invoke`) stays identical:
+
+```typescript
+// Before (ephemeral)
+import { MemorySaver } from "@langchain/langgraph";
+const checkpointer = new MemorySaver();
+
+// After (persistent)
+import { PostgresSaver } from "@langchain/langgraph-checkpoint-postgres";
+const checkpointer = PostgresSaver.fromConnString(process.env.POSTGRES_URL!);
+await checkpointer.setup();
+```
+
+Both implement `BaseCheckpointSaver`, so the agent code is unaware of the backend.
+
+## When to use
+
+- Persistence across process restarts
+- Multi-session agents that resume conversations
+- Production deployments where state must not be lost
+- When you want to inspect checkpoint data via Postico or psql
+
+## Environment variable
+
+Add to your `.env`:
+
+```
+POSTGRES_URL=postgresql://postgres:postgres@localhost:5432/langgraph
+```
+
+Make sure the database exists before the first run. `setup()` handles the tables but not database creation.
