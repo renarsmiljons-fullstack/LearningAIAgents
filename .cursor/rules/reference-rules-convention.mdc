@@ -1,0 +1,28 @@
+---
+description: "Convention for how reference rules work in this project -- always applied so agents understand how to use REFERENCE: rules"
+alwaysApply: true
+---
+
+# Reference Rules Convention
+
+Rules whose description starts with `REFERENCE:` are knowledge files that provide essential context about a specific topic and its corresponding source path.
+
+## Format
+
+```
+REFERENCE: <topic> — <file path or directory it corresponds to>
+```
+
+## When to read a reference rule
+
+A reference rule is relevant and should be read whenever:
+
+1. **The user asks about the topic** — questions, clarifications, or discussions about the subject
+2. **You are planning something** that involves or could benefit from understanding the topic — even if the user hasn't explicitly mentioned it
+3. **You are implementing code** in or related to the corresponding file path — at this point reading it is mandatory
+
+Reference files exist so agents have accurate, pre-researched knowledge without needing to re-discover it. Treat them as authoritative context for their topic.
+
+## Keeping references accurate
+
+Reference rules must stay in sync with reality. If you read a reference rule and discover that any of its content is outdated or incorrect — whether through implementation work, documentation changes, or new findings — you must update the reference rule immediately. This is not optional. Stale references are worse than no references because they lead to confidently wrong decisions.

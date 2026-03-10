@@ -1,0 +1,63 @@
+---
+description: "REFERENCE: MemorySaver checkpointer (ephemeral, in-memory) — deep-agents/src/checkpointers/"
+alwaysApply: false
+---
+
+# MemorySaver Checkpointer
+
+`MemorySaver` is the simplest checkpointer for LangGraph agents. It stores state snapshots in an in-memory JavaScript `Map` — no external dependencies, zero setup.
+
+## What it does
+
+After every step of the agent loop, the full agent state (messages, files, todos, custom fields) is saved as a checkpoint keyed by `thread_id`. This enables:
+
+- **Conversation continuity** within a single process — same `thread_id` resumes where it left off
+- **Human-in-the-loop** — pause at a tool call, inspect, resume later (while the process is alive)
+- **Retry on failure** — if a step fails, the agent can retry from the last checkpoint
+
+## Key limitation
+
+State is lost when the Node.js process exits. `MemorySaver` is purely in-process memory — there is no persistence to disk or database. For persistence across restarts, use `PostgresSaver` (see `checkpointers/postgres-saver.mdc`).
+
+## Import and usage
+
+```typescript
+import { MemorySaver } from "@langchain/langgraph";
+
+const checkpointer = new MemorySaver();
+
+const agent = createDeepAgent({
+  checkpointer,
+});
+```
+
+## Thread ID mechanics
+
+The `thread_id` in the config is the key that maps to a specific checkpoint chain:
+
+```typescript
+const config = {
+  configurable: {
+    thread_id: "user-session-123",
+  },
+};
+
+// First call — starts fresh
+await agent.invoke({ messages: [{ role: "user", content: "Hello" }] }, config);
+
+// Second call with same thread_id — continues the conversation
+await agent.invoke({ messages: [{ role: "user", content: "Follow up" }] }, config);
+
+// Different thread_id — completely separate conversation
+await agent.invoke(
+  { messages: [{ role: "user", content: "New topic" }] },
+  { configurable: { thread_id: "different-session" } },
+);
+```
+
+## When to use
+
+- Local development and experimentation
+- Quick prototyping where persistence is not needed
+- Tests and CI where each run should start clean
+- Single-session scripts that don't need to survive restarts
