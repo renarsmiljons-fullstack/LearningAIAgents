@@ -14,11 +14,13 @@
 - **Match model to task.** Use `model: "fast"` for straightforward execution where reasoning is minimal. Inherit the parent model for tasks requiring deep reasoning or nuanced judgment.
 - **Keep responses focused.** Don't pollute the main thread with raw tool output or side-quest research. Summarize sub-agent findings concisely.
 
+## Standard Operating Procedures
+
+These are mandatory — follow them every time, without needing to be asked.
+
+- **Committing** — Before creating any commit, read and follow `.cursor/skills/commit/SKILL.md`.
+- **Pull Requests** — Before creating or editing any PR, read and follow `.cursor/skills/create-pr/SKILL.md`.
+
 ## Rules (always applied)
 
 - **Recursive Learning Pattern** — `.cursor/rules/recursive-learning.mdc` governs how to respond to learning-oriented questions.
-
-## Skills (invoked on demand)
-
-- **PR Creation** — `.cursor/skills/create-pr/SKILL.md` — invoke via `/create-pr`
-- **Commit Conventions** — `.cursor/skills/commit/SKILL.md` — invoke via `/commit`
