@@ -1,6 +1,6 @@
 import { createDeepAgent } from "deepagents";
 import { tool } from "langchain";
-import { MemorySaver } from "@langchain/langgraph";
+import { PostgresSaver } from "@langchain/langgraph-checkpoint-postgres";
 import { z } from "zod";
 
 const greet = tool(
@@ -14,25 +14,28 @@ const greet = tool(
   },
 );
 
-const checkpointer = new MemorySaver();
-
-const agent = createDeepAgent({
-  model: "openai:gpt-5.2",
-  tools: [greet],
-  systemPrompt:
-    "You are a helpful assistant running locally. " +
-    "Use your built-in tools for planning, file management, and task delegation. " +
-    "Greet the user when asked.",
-  checkpointer,
-});
-
-const config = {
-  configurable: {
-    thread_id: `thread-${Date.now()}`,
-  },
-};
-
 async function main() {
+  const checkpointer = PostgresSaver.fromConnString(
+    process.env.POSTGRES_URL ?? "postgresql://postgres:postgres@localhost:5432/langgraph",
+  );
+  await checkpointer.setup();
+
+  const agent = createDeepAgent({
+    model: "openai:gpt-5.2",
+    tools: [greet],
+    systemPrompt:
+      "You are a helpful assistant running locally. " +
+      "Use your built-in tools for planning, file management, and task delegation. " +
+      "Greet the user when asked.",
+    checkpointer,
+  });
+
+  const config = {
+    configurable: {
+      thread_id: `thread-${Date.now()}`,
+    },
+  };
+
   const userMessage =
     process.argv[2] ?? "Hi! What tools do you have available?";
 

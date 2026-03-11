@@ -55,6 +55,10 @@ await agent.invoke(
 );
 ```
 
+## Current codebase status
+
+The deep-agents codebase has migrated from `MemorySaver` to `PostgresSaver` for persistent checkpointing. `MemorySaver` is no longer used in `src/agent.ts`. This reference is retained for context on how ephemeral checkpointing works and when it might be re-introduced (e.g., tests, throwaway scripts).
+
 ## When to use
 
 - Local development and experimentation
