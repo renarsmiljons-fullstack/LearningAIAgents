@@ -16,6 +16,16 @@ interface MessageListProps {
   };
 }
 
+function isLastMessageStreaming(messages: BaseMessage[]): boolean {
+  const last = messages.at(-1);
+  if (!last || last.getType() !== "ai") return false;
+  const content = last.content;
+  if (typeof content === "string" && content.length > 0) return true;
+  if (Array.isArray(content) && content.length > 0) return true;
+  if ("tool_calls" in last && Array.isArray(last.tool_calls) && last.tool_calls.length > 0) return true;
+  return false;
+}
+
 export function MessageList({ stream }: MessageListProps) {
   const bottomRef = useRef<HTMLDivElement>(null);
 
@@ -60,10 +70,11 @@ export function MessageList({ stream }: MessageListProps) {
           );
         })}
 
-        {stream.isLoading && stream.messages.length > 0 && (
-          <div className="flex items-center gap-2 py-2 text-sm text-muted-foreground">
-            <span className="inline-block size-2 animate-pulse rounded-full bg-blue-500" />
-            Thinking...
+        {stream.isLoading && stream.messages.length > 0 && !isLastMessageStreaming(stream.messages) && (
+          <div className="flex items-center gap-1.5 py-2">
+            <span className="size-2 animate-bounce rounded-full bg-muted-foreground/60 [animation-delay:0ms]" />
+            <span className="size-2 animate-bounce rounded-full bg-muted-foreground/60 [animation-delay:150ms]" />
+            <span className="size-2 animate-bounce rounded-full bg-muted-foreground/60 [animation-delay:300ms]" />
           </div>
         )}
 
