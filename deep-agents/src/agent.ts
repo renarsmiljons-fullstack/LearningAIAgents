@@ -1,6 +1,9 @@
-import { createDeepAgent } from "deepagents";
+import { fileURLToPath } from "node:url";
+import { resolve } from "node:path";
+import { createDeepAgent, type DeepAgent } from "deepagents";
 import { tool } from "langchain";
 import { AIMessageChunk, ToolMessage } from "langchain";
+import { MemorySaver } from "@langchain/langgraph";
 import { PostgresSaver } from "@langchain/langgraph-checkpoint-postgres";
 import { z } from "zod";
 
@@ -17,6 +20,18 @@ const greet = tool(
   },
 );
 
+// Exported for the LangGraph dev server — MemorySaver gives the server
+// working /history endpoints without requiring an external Postgres instance.
+export const agent: DeepAgent = createDeepAgent({
+  model: "openai:gpt-5.2",
+  tools: [greet],
+  checkpointer: new MemorySaver(),
+  systemPrompt:
+    "You are a helpful assistant running locally. " +
+    "Use your built-in tools for planning, file management, and task delegation. " +
+    "Greet the user when asked.",
+});
+
 function resolveSource(namespace: string[]): { label: string; isSubagent: boolean } {
   const toolSegment = namespace.find((s) => s.startsWith("tools:"));
   if (toolSegment) {
@@ -31,7 +46,7 @@ async function main() {
   );
   await checkpointer.setup();
 
-  const agent = createDeepAgent({
+  const cliAgent = createDeepAgent({
     model: "openai:gpt-5.2",
     tools: [greet],
     systemPrompt:
@@ -55,7 +70,7 @@ async function main() {
   let lastSource = "";
   let midLine = false;
 
-  for await (const [namespace, mode, data] of await agent.stream(
+  for await (const [namespace, mode, data] of await cliAgent.stream(
     { messages: [{ role: "user", content: userMessage }] },
     { ...config, streamMode: ["updates", "messages"], subgraphs: true },
   )) {
@@ -117,4 +132,9 @@ async function main() {
   console.log();
 }
 
-main().catch(console.error);
+// Only run CLI when executed directly (not when imported by the LangGraph server)
+const thisFile = fileURLToPath(import.meta.url);
+const entryFile = resolve(process.argv[1]);
+if (thisFile === entryFile) {
+  main().catch(console.error);
+}
