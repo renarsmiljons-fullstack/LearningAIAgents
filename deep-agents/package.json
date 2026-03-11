@@ -6,7 +6,9 @@
   "scripts": {
     "setup": "bash setup.sh",
     "build": "tsc",
+    "prestart": "node --import tsx src/setup-env.ts",
     "start": "node --env-file=.env --import tsx src/agent.ts",
+    "predev": "node --import tsx src/setup-env.ts",
     "dev": "node --env-file=.env --import tsx --watch src/agent.ts"
   },
   "dependencies": {
