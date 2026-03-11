@@ -6,7 +6,8 @@
   - **L** — Liskov Substitution. Replaceable parts must honor the contract of what they replace.
   - **I** — Interface Segregation. Don't force consumers to depend on things they don't use.
   - **D** — Dependency Inversion. Depend on abstractions, not concrete implementations.
-- **Prevention over cure.** Thoughtful upfront design always beats reactive fixes. After completing work, step back and reflect on what was written against the principles before considering it done.
+- **Evaluate before you modify.** Before adding code to a file, read the file and assess whether it already honors the principles above. If it doesn't, fix the structural issues first — or as part of the same change — rather than piling more code onto a flawed foundation. Adding well-structured code to a badly-structured file still produces a badly-structured file.
+- **Prevention over cure.** Thoughtful upfront design always beats reactive fixes. After completing work, step back and evaluate what was written against the principles before considering it done.
 
 ## Context Management
 
