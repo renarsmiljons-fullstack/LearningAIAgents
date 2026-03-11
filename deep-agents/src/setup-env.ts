@@ -31,6 +31,67 @@ const REQUIRED_VARS: EnvVar[] = [
   },
 ];
 
+const LANGSMITH_KEYS = {
+  tracing: "LANGSMITH_TRACING",
+  endpoint: "LANGSMITH_ENDPOINT",
+  apiKey: "LANGSMITH_API_KEY",
+  project: "LANGSMITH_PROJECT",
+} as const;
+
+const LANGSMITH_PROJECT_DEFAULT = "deep-agents";
+const LANGSMITH_ENDPOINT_DEFAULT = "https://api.smith.langchain.com";
+const LANGSMITH_ENDPOINT_EU = "https://eu.api.smith.langchain.com";
+
+async function promptLangSmithTracing(
+  vars: Map<string, string>,
+  rl: Interface,
+): Promise<boolean> {
+  const tracingEnabled = vars.get(LANGSMITH_KEYS.tracing) === "true";
+  const apiKey = vars.get(LANGSMITH_KEYS.apiKey);
+
+  if (tracingEnabled && apiKey) return false;
+
+  if (tracingEnabled && !apiKey) {
+    if (!vars.has(LANGSMITH_KEYS.endpoint)) {
+      const region = await rl.question(
+        `LangSmith region — US or EU? (${LANGSMITH_ENDPOINT_DEFAULT}) : `,
+      );
+      const isEu = region.trim().toLowerCase() === "eu";
+      vars.set(LANGSMITH_KEYS.endpoint, isEu ? LANGSMITH_ENDPOINT_EU : LANGSMITH_ENDPOINT_DEFAULT);
+    }
+
+    const key = await rl.question("Enter your LangSmith API key: ");
+    if (!key.trim()) {
+      console.error("\nLangSmith API key is required when tracing is enabled. Aborting.");
+      process.exit(1);
+    }
+    vars.set(LANGSMITH_KEYS.apiKey, key.trim());
+    vars.set(LANGSMITH_KEYS.project, vars.get(LANGSMITH_KEYS.project) ?? LANGSMITH_PROJECT_DEFAULT);
+    return true;
+  }
+
+  const answer = await rl.question("Enable LangSmith tracing? (y/N): ");
+  if (answer.trim().toLowerCase() !== "y") return false;
+
+  const region = await rl.question(
+    `LangSmith region — US or EU? (${LANGSMITH_ENDPOINT_DEFAULT}) : `,
+  );
+  const isEu = region.trim().toLowerCase() === "eu";
+  const endpoint = isEu ? LANGSMITH_ENDPOINT_EU : LANGSMITH_ENDPOINT_DEFAULT;
+
+  const key = await rl.question("Enter your LangSmith API key: ");
+  if (!key.trim()) {
+    console.error("\nLangSmith API key is required when tracing is enabled. Aborting.");
+    process.exit(1);
+  }
+
+  vars.set(LANGSMITH_KEYS.tracing, "true");
+  vars.set(LANGSMITH_KEYS.endpoint, endpoint);
+  vars.set(LANGSMITH_KEYS.apiKey, key.trim());
+  vars.set(LANGSMITH_KEYS.project, LANGSMITH_PROJECT_DEFAULT);
+  return true;
+}
+
 function parseEnvFile(content: string): Map<string, string> {
   const vars = new Map<string, string>();
   for (const line of content.split("\n")) {
@@ -45,6 +106,28 @@ function parseEnvFile(content: string): Map<string, string> {
 
 function isMissing(value: string | undefined, placeholders: string[]): boolean {
   return value === undefined || placeholders.includes(value);
+}
+
+function writeEnvVars(
+  originalContent: string,
+  vars: Map<string, string>,
+  keys: string[],
+) {
+  let updatedContent = originalContent;
+  for (const key of keys) {
+    const value = vars.get(key);
+    if (value === undefined) continue;
+
+    const pattern = new RegExp(`^${key}=.*$`, "m");
+    if (pattern.test(updatedContent)) {
+      updatedContent = updatedContent.replace(pattern, `${key}=${value}`);
+    } else {
+      updatedContent = updatedContent.trimEnd() + `\n${key}=${value}\n`;
+    }
+  }
+
+  writeFileSync(ENV_PATH, updatedContent);
+  console.log("\n.env updated successfully.\n");
 }
 
 function checkNodeVersion(minimum: number) {
@@ -78,14 +161,19 @@ async function run() {
   );
 
   if (missing.length === 0) {
-    const postgresUrl = vars.get("POSTGRES_URL");
-    if (postgresUrl) {
-      const rl = createInterface({ input: process.stdin, output: process.stdout });
-      try {
-        await verifyPostgres(postgresUrl, rl);
-      } finally {
-        rl.close();
+    const rl = createInterface({ input: process.stdin, output: process.stdout });
+    try {
+      const tracingChanged = await promptLangSmithTracing(vars, rl);
+      if (tracingChanged) {
+        writeEnvVars(envContent, vars, [LANGSMITH_KEYS.tracing, LANGSMITH_KEYS.endpoint, LANGSMITH_KEYS.apiKey, LANGSMITH_KEYS.project]);
       }
+
+      const postgresUrl = vars.get("POSTGRES_URL");
+      if (postgresUrl) {
+        await verifyPostgres(postgresUrl, rl);
+      }
+    } finally {
+      rl.close();
     }
     return;
   }
@@ -107,33 +195,21 @@ async function run() {
 
       vars.set(v.key, value);
     }
+
+    const tracingChanged = await promptLangSmithTracing(vars, rl);
+
+    const keysToWrite = missing.map((v) => v.key);
+    if (tracingChanged) {
+      keysToWrite.push(LANGSMITH_KEYS.tracing, LANGSMITH_KEYS.endpoint, LANGSMITH_KEYS.apiKey, LANGSMITH_KEYS.project);
+    }
+    writeEnvVars(envContent, vars, keysToWrite);
+
+    const postgresUrl = vars.get("POSTGRES_URL");
+    if (postgresUrl) {
+      await verifyPostgres(postgresUrl, rl);
+    }
   } finally {
     rl.close();
-  }
-
-  let updatedContent = envContent;
-  for (const v of missing) {
-    const value = vars.get(v.key)!;
-    const pattern = new RegExp(`^${v.key}=.*$`, "m");
-
-    if (pattern.test(updatedContent)) {
-      updatedContent = updatedContent.replace(pattern, `${v.key}=${value}`);
-    } else {
-      updatedContent = updatedContent.trimEnd() + `\n${v.key}=${value}\n`;
-    }
-  }
-
-  writeFileSync(ENV_PATH, updatedContent);
-  console.log("\n.env updated successfully.\n");
-
-  const postgresUrl = vars.get("POSTGRES_URL");
-  if (postgresUrl) {
-    const rl2 = createInterface({ input: process.stdin, output: process.stdout });
-    try {
-      await verifyPostgres(postgresUrl, rl2);
-    } finally {
-      rl2.close();
-    }
   }
 }
 
