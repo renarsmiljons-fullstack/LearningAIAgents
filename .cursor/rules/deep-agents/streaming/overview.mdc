@@ -1,0 +1,123 @@
+---
+description: "REFERENCE: DeepAgents streaming (real-time updates, subagent streams) — deep-agents/src/"
+alwaysApply: false
+---
+
+# DeepAgents Streaming
+
+Deep agents build on LangGraph's streaming infrastructure with first-class support for subagent streams. Use `agent.stream()` instead of `agent.invoke()` to receive real-time updates — LLM tokens, step progress, tool calls, and custom events.
+
+## Basic usage
+
+```typescript
+for await (const [namespace, chunk] of await agent.stream(
+  { messages: [{ role: "user", content: "Hello" }] },
+  { streamMode: "updates", subgraphs: true },
+)) {
+  // namespace identifies the source agent
+  // chunk contains the event data
+}
+```
+
+The `subgraphs: true` option is required to receive events from subagents spawned via the `task` tool.
+
+## Stream modes
+
+| Mode | Tuple shape | What it streams |
+|---|---|---|
+| `"updates"` | `[namespace, chunk]` | Step completions — one event per node execution |
+| `"messages"` | `[namespace, [message]]` | Individual LLM tokens and tool call chunks |
+| `"custom"` | `[namespace, data]` | User-defined events emitted via `config.writer` |
+
+### Combined modes
+
+Pass an array to receive multiple modes in a single loop. The tuple gains a `mode` discriminator:
+
+```typescript
+for await (const [namespace, mode, data] of await agent.stream(
+  { messages },
+  { streamMode: ["updates", "messages"], subgraphs: true },
+)) {
+  if (mode === "updates") { /* step data */ }
+  else if (mode === "messages") { /* token data */ }
+}
+```
+
+## Namespaces
+
+Each event includes a namespace (string array) that identifies which agent produced it.
+
+| Namespace | Source |
+|---|---|
+| `[]` (empty) | Main agent |
+| `["tools:abc123"]` | Subagent spawned by tool call `abc123` |
+| `["tools:abc123", "model_request:def456"]` | Model request node inside a subagent |
+
+### Resolving the source
+
+```typescript
+function resolveSource(namespace: string[]): { label: string; isSubagent: boolean } {
+  const toolSegment = namespace.find((s) => s.startsWith("tools:"));
+  if (toolSegment) {
+    return { label: `subagent:${toolSegment.split(":")[1]}`, isSubagent: true };
+  }
+  return { label: "main", isSubagent: false };
+}
+```
+
+## Token streaming (messages mode)
+
+Use `message.text` for incremental token output. Use `AIMessageChunk.isInstance()` and `ToolMessage.isInstance()` to distinguish message types:
+
+```typescript
+import { AIMessageChunk, ToolMessage } from "langchain";
+
+const [message] = data;
+
+// Tool call chunks (streaming tool invocations)
+if (AIMessageChunk.isInstance(message) && message.tool_call_chunks?.length) {
+  for (const tc of message.tool_call_chunks) {
+    if (tc.name) console.log(`Tool call: ${tc.name}`);
+  }
+}
+
+// Tool results
+if (ToolMessage.isInstance(message)) {
+  console.log(`Tool result [${message.name}]: ${message.text?.slice(0, 150)}`);
+}
+
+// Regular AI content
+if (message.text && !message.tool_call_chunks?.length) {
+  process.stdout.write(message.text);
+}
+```
+
+## Custom events (config.writer)
+
+Tools can emit progress events using `config.writer`:
+
+```typescript
+const myTool = tool(
+  async ({ topic }: { topic: string }, config: ToolRuntime) => {
+    config.writer?.({ status: "starting", progress: 0 });
+    // ... work ...
+    config.writer?.({ status: "complete", progress: 100 });
+    return result;
+  },
+  { name: "my_tool", description: "...", schema: z.object({ topic: z.string() }) },
+);
+```
+
+Consume custom events with `streamMode: "custom"` (or include `"custom"` in the combined modes array).
+
+## Interesting nodes for updates mode
+
+When filtering `updates` mode events, the meaningful node names are `model_request` and `tools`. Other nodes are internal middleware steps that are typically not worth displaying.
+
+## Subagent lifecycle pattern
+
+Track subagent start/run/complete by combining namespace inspection with `updates` mode:
+
+1. **Pending** — main agent's `model_request` contains a `task` tool call (check `msg.tool_calls`)
+2. **Running** — events arrive from a `tools:*` namespace
+3. **Complete** — main agent's `tools` node returns a `ToolMessage` with the subagent result

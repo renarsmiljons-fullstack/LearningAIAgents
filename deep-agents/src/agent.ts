@@ -1,7 +1,10 @@
 import { createDeepAgent } from "deepagents";
 import { tool } from "langchain";
+import { AIMessageChunk, ToolMessage } from "langchain";
 import { PostgresSaver } from "@langchain/langgraph-checkpoint-postgres";
 import { z } from "zod";
+
+const INTERESTING_NODES = new Set(["model_request", "tools"]);
 
 const greet = tool(
   ({ name }: { name: string }) => `Hello, ${name}! I'm your local deep agent.`,
@@ -13,6 +16,14 @@ const greet = tool(
     }),
   },
 );
+
+function resolveSource(namespace: string[]): { label: string; isSubagent: boolean } {
+  const toolSegment = namespace.find((s) => s.startsWith("tools:"));
+  if (toolSegment) {
+    return { label: `subagent:${toolSegment.split(":")[1]}`, isSubagent: true };
+  }
+  return { label: "main", isSubagent: false };
+}
 
 async function main() {
   const checkpointer = PostgresSaver.fromConnString(
@@ -41,15 +52,69 @@ async function main() {
 
   console.log(`\n> User: ${userMessage}\n`);
 
-  const result = await agent.invoke(
-    {
-      messages: [{ role: "user", content: userMessage }],
-    },
-    config,
-  );
+  let lastSource = "";
+  let midLine = false;
 
-  const lastMessage = result.messages[result.messages.length - 1];
-  console.log(`> Agent: ${typeof lastMessage.content === "string" ? lastMessage.content : JSON.stringify(lastMessage.content)}\n`);
+  for await (const [namespace, mode, data] of await agent.stream(
+    { messages: [{ role: "user", content: userMessage }] },
+    { ...config, streamMode: ["updates", "messages"], subgraphs: true },
+  )) {
+    const { label: source } = resolveSource(namespace);
+
+    if (mode === "updates") {
+      for (const [nodeName, nodeData] of Object.entries(data)) {
+        if (!INTERESTING_NODES.has(nodeName)) continue;
+
+        if (midLine) {
+          process.stdout.write("\n");
+          midLine = false;
+        }
+
+        if (nodeName === "tools") {
+          const { messages = [] } = nodeData as { messages?: unknown[] };
+          for (const msg of messages) {
+            if ((msg as ToolMessage).type === "tool") {
+              const toolMsg = msg as ToolMessage;
+              console.log(`[${source}] tool result (${toolMsg.name}): ${String(toolMsg.content).slice(0, 200)}`);
+            }
+          }
+        } else {
+          console.log(`[${source}] step: ${nodeName}`);
+        }
+      }
+    } else if (mode === "messages") {
+      const [message] = data;
+
+      if (AIMessageChunk.isInstance(message) && message.tool_call_chunks?.length) {
+        for (const tc of message.tool_call_chunks) {
+          if (tc.name) {
+            if (midLine) {
+              process.stdout.write("\n");
+              midLine = false;
+            }
+            console.log(`[${source}] tool call: ${tc.name}`);
+          }
+        }
+        continue;
+      }
+
+      if (message.text) {
+        if (source !== lastSource) {
+          if (midLine) {
+            process.stdout.write("\n");
+            midLine = false;
+          }
+          process.stdout.write(`\n[${source}] `);
+          lastSource = source;
+        }
+        process.stdout.write(message.text);
+        midLine = true;
+      }
+    }
+  }
+
+  if (midLine) process.stdout.write("\n");
+  console.log();
 }
 
 main().catch(console.error);
