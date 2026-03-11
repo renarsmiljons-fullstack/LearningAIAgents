@@ -4,7 +4,6 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "setup": "bash setup.sh",
     "build": "tsc",
     "prestart": "node --import tsx src/setup-env.ts",
     "start": "node --env-file=.env --import tsx src/agent.ts",
