@@ -8,21 +8,27 @@
     "prestart": "node --import tsx src/setup-env.ts",
     "start": "node --env-file=.env --import tsx src/agent.ts",
     "predev": "node --import tsx src/setup-env.ts",
-    "dev": "node --env-file=.env --import tsx --watch src/agent.ts"
+    "dev": "node --env-file=.env --import tsx --watch src/agent.ts",
+    "serve": "npx @langchain/langgraph-cli dev",
+    "dev:frontend": "npm run dev --prefix frontend",
+    "preflight": "node --import tsx src/preflight.ts",
+    "dev:full": "npm run preflight && concurrently -n server,frontend -c blue,green \"npm run serve\" \"npm run dev:frontend\""
   },
   "dependencies": {
     "@langchain/core": "^1.1.31",
     "@langchain/langgraph": "^1.2.2",
     "@langchain/langgraph-checkpoint-postgres": "^1.0.1",
     "@langchain/openai": "^1.2.12",
-    "deepagents": "^1.8.1",
+    "deepagents": "^1.8.2",
     "langchain": "^1.2.30",
     "pg": "^8.20.0",
     "zod": "^4.3.6"
   },
   "devDependencies": {
+    "@langchain/langgraph-cli": "^1.1.15",
     "@types/node": "^25.4.0",
     "@types/pg": "^8.18.0",
+    "concurrently": "^9.2.1",
     "tsx": "^4.21.0",
     "typescript": "^5.9.3"
   }
