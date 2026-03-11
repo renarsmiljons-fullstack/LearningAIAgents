@@ -7,7 +7,18 @@ Exploration workspace for building AI agents with [LangChain](https://js.langcha
 Requires Node.js >= 20.
 
 ```bash
-npm run setup
+npm install
+npm start
 ```
 
-This installs all dependencies and creates a `.env` file from `.env.example`. Add your API key to `.env` before running. See `package.json` for available scripts.
+On first run, the setup wizard will prompt for any missing environment variables (`OPENAI_API_KEY`, `POSTGRES_URL`) and create your `.env` file.
+
+## Running
+
+```bash
+npm start                        # single run
+npm start -- "Your message here" # single run with custom prompt
+npm run dev                      # watch mode (restarts on file changes)
+```
+
+The setup wizard runs automatically before each start. If all variables are already configured, it passes through silently.
