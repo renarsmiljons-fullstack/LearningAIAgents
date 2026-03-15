@@ -6,16 +6,19 @@ export const shell = tool(
   async function* ({ command }: { command: string }) {
     const child = spawn("bash", ["-c", command]);
 
-    const output: string[] = [];
+    const pending: string[] = [];
+    const fullOutput: string[] = [];
 
     child.stdout?.on("data", (chunk: Buffer) => {
       const text = chunk.toString();
-      output.push(text);
+      pending.push(text);
+      fullOutput.push(text);
     });
 
     child.stderr?.on("data", (chunk: Buffer) => {
       const text = chunk.toString();
-      output.push(text);
+      pending.push(text);
+      fullOutput.push(text);
     });
 
     // Yield stdout/stderr chunks as they arrive until the process exits.
@@ -31,9 +34,8 @@ export const shell = tool(
     while (true) {
       await tick();
 
-      while (output.length > 0) {
-        const line = output.shift()!;
-        yield { data: line };
+      while (pending.length > 0) {
+        yield { data: pending.shift()! };
       }
 
       const settled = await Promise.race([
@@ -42,10 +44,13 @@ export const shell = tool(
       ]);
 
       if (settled !== null) {
-        while (output.length > 0) {
-          yield { data: output.shift()! };
+        while (pending.length > 0) {
+          yield { data: pending.shift()! };
         }
-        return JSON.stringify({ exitCode: settled.code });
+        return JSON.stringify({
+          exitCode: settled.code,
+          output: fullOutput.join(""),
+        });
       }
     }
   },

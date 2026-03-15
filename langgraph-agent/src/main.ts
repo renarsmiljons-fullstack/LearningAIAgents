@@ -12,7 +12,15 @@ async function main() {
     process.argv[2] ?? "List the files in the current directory using ls -la";
   console.log(`\n> User: ${userMessage}\n`);
 
-  let midLine = false;
+  type Source = "model" | "tool" | "status" | null;
+  let lastSource: Source = null;
+
+  function ensureNewline(nextSource: Source) {
+    if (lastSource !== null && lastSource !== nextSource) {
+      process.stdout.write("\n");
+    }
+    lastSource = nextSource;
+  }
 
   for await (const [mode, chunk] of await graph.stream(
     { messages: [{ role: "user", content: userMessage }] },
@@ -29,34 +37,28 @@ async function main() {
 
       switch (event.event) {
         case "on_tool_start":
-          if (midLine) {
-            process.stdout.write("\n");
-            midLine = false;
-          }
+          ensureNewline("status");
           console.log(`[tool:start] ${event.name}`);
+          lastSource = null;
           break;
 
         case "on_tool_event":
           if (event.data?.data) {
+            ensureNewline("tool");
             process.stdout.write(event.data.data);
-            midLine = true;
           }
           break;
 
         case "on_tool_end":
-          if (midLine) {
-            process.stdout.write("\n");
-            midLine = false;
-          }
+          ensureNewline("status");
           console.log(`[tool:end] ${event.name}`);
+          lastSource = null;
           break;
 
         case "on_tool_error":
-          if (midLine) {
-            process.stdout.write("\n");
-            midLine = false;
-          }
+          ensureNewline("status");
           console.error(`[tool:error] ${event.name}`);
+          lastSource = null;
           break;
       }
     } else if (mode === "messages") {
@@ -65,11 +67,9 @@ async function main() {
       if (isAIChunk(message) && message.tool_call_chunks?.length) {
         for (const tc of message.tool_call_chunks) {
           if (tc.name) {
-            if (midLine) {
-              process.stdout.write("\n");
-              midLine = false;
-            }
+            ensureNewline("status");
             console.log(`[model] calling ${tc.name}...`);
+            lastSource = null;
           }
         }
         continue;
@@ -80,19 +80,13 @@ async function main() {
         typeof message.content === "string" &&
         message.content
       ) {
-        if (midLine) {
-          process.stdout.write("\n");
-          midLine = false;
-        }
+        ensureNewline("model");
         process.stdout.write(message.content);
-        midLine = true;
       }
-    } else if (mode === "updates") {
-      // Could handle step transitions here if needed
     }
   }
 
-  if (midLine) process.stdout.write("\n");
+  if (lastSource !== null) process.stdout.write("\n");
   console.log();
 }
 
